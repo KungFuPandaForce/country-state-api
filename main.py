@@ -115,15 +115,19 @@ class Region(BaseModel):
     subregions: List[str] = []
     countries: List[str] = []
 
-def pin_skip_first(items):
-    """Keep Skip at the start of a state or city list; preserve the rest of the order."""
+def _item_name(item):
+    return item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+
+def pin_skip_first(items, country_code: str = None):
+    """Keep Skip at the start of a state or city list. Myanmar never includes Skip."""
     if not items:
         return items
+    if country_code == "MM":
+        return [item for item in items if _item_name(item) != "Skip"]
     skip_items = []
     other_items = []
     for item in items:
-        name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
-        if name == "Skip":
+        if _item_name(item) == "Skip":
             skip_items.append(item)
         else:
             other_items.append(item)
@@ -156,6 +160,11 @@ def load_data():
     
     all_countries = [Country(**country) for country in countries_data]
     country_lookup = {country.code: country for country in all_countries}
+
+    # Myanmar should never expose a Skip state
+    myanmar = country_lookup.get("MM")
+    if myanmar and myanmar.states:
+        myanmar.states = [state for state in myanmar.states if state.name != "Skip"]
 
     # Populate City Data
     global city_search_index
@@ -192,6 +201,8 @@ def load_data():
 
             for city in world_cities:
                 c_code, s_name = city["country_code"], city["state_name"]
+                if c_code == "MM" and (city.get("name") == "Skip" or s_name == "Skip"):
+                    continue
                 
                 # Build lightweight search index for both modes
                 city_name_local = city.get("name_local", city.get("name_mm", ""))
@@ -258,7 +269,7 @@ def get_states(request: Request, country_code: str):
         raise HTTPException(status_code=404, detail="Country not found")
     
     country = country_lookup[country_code]
-    return pin_skip_first(country.states or [])
+    return pin_skip_first(country.states or [], country_code)
 
 @v1_router.get("/countries/{country_code}/states/{state_name}/cities", response_model=List[City])
 @limiter.limit(f"{RATE_LIMIT_DEFAULT}/minute")
@@ -280,14 +291,14 @@ def get_cities(request: Request, country_code: str, state_name: str):
                 for c in raw_cities:
                     if "name_local" not in c and "name_mm" in c:
                         c["name_local"] = c["name_mm"]
-                return pin_skip_first(raw_cities)
+                return pin_skip_first(raw_cities, country_code)
 
     # Fallback to in-memory lookup
     state = find_state_relaxedly(country_code, state_name, country_lookup)
     if not state:
         raise HTTPException(status_code=404, detail="State not found")
         
-    return pin_skip_first(state.cities or [])
+    return pin_skip_first(state.cities or [], country_code)
 
 @v1_router.get("/search/countries", response_model=List[CountryBase])
 @limiter.limit(f"{RATE_LIMIT_HEAVY}/minute")
