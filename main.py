@@ -118,16 +118,35 @@ class Region(BaseModel):
 def _item_name(item):
     return item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
 
+def _is_skip_name(name) -> bool:
+    return isinstance(name, str) and name.strip().lower() == "skip"
+
+def _is_myanmar(country_code: str) -> bool:
+    return (country_code or "").upper() == "MM"
+
+def strip_myanmar_skip(country):
+    """Remove Skip states and Skip cities from Myanmar."""
+    if not country or not _is_myanmar(getattr(country, "code", "")):
+        return country
+    country.states = [
+        state for state in (country.states or [])
+        if not _is_skip_name(state.name)
+    ]
+    for state in country.states:
+        if state.cities:
+            state.cities = [city for city in state.cities if not _is_skip_name(city.name)]
+    return country
+
 def pin_skip_first(items, country_code: str = None):
     """Keep Skip at the start of a state or city list. Myanmar never includes Skip."""
     if not items:
         return items
-    if country_code == "MM":
-        return [item for item in items if _item_name(item) != "Skip"]
+    if _is_myanmar(country_code):
+        return [item for item in items if not _is_skip_name(_item_name(item))]
     skip_items = []
     other_items = []
     for item in items:
-        if _item_name(item) == "Skip":
+        if _is_skip_name(_item_name(item)):
             skip_items.append(item)
         else:
             other_items.append(item)
@@ -161,11 +180,6 @@ def load_data():
     all_countries = [Country(**country) for country in countries_data]
     country_lookup = {country.code: country for country in all_countries}
 
-    # Myanmar should never expose a Skip state
-    myanmar = country_lookup.get("MM")
-    if myanmar and myanmar.states:
-        myanmar.states = [state for state in myanmar.states if state.name != "Skip"]
-
     # Populate City Data
     global city_search_index
     city_search_index = []
@@ -183,6 +197,8 @@ def load_data():
                         data_by_state = {}
                         for city in world_cities:
                             c_code, s_name = city["country_code"], city["state_name"]
+                            if _is_myanmar(c_code) and (_is_skip_name(city.get("name")) or _is_skip_name(s_name)):
+                                continue
                             key = f"cities:{c_code.upper()}:{s_name.lower().replace(' ', '_')}"
                             if key not in data_by_state:
                                 data_by_state[key] = []
@@ -197,11 +213,18 @@ def load_data():
                 except Exception as e:
                     print(f"Warning: Failed to auto-populate Redis: {e}")
 
+            if USE_REDIS:
+                try:
+                    for key in redis_client.scan_iter("cities:MM:skip*"):
+                        redis_client.delete(key)
+                except Exception as e:
+                    print(f"Warning: Failed to clear leftover Myanmar Skip keys in Redis: {e}")
+
             state_lookup = {c.code: {s.name.lower(): s for s in (c.states or [])} for c in all_countries}
 
             for city in world_cities:
                 c_code, s_name = city["country_code"], city["state_name"]
-                if c_code == "MM" and (city.get("name") == "Skip" or s_name == "Skip"):
+                if _is_myanmar(c_code) and (_is_skip_name(city.get("name")) or _is_skip_name(s_name)):
                     continue
                 
                 # Build lightweight search index for both modes
@@ -214,6 +237,8 @@ def load_data():
                 })
 
                 # Ensure dynamic state creation (common for both modes)
+                if _is_myanmar(c_code) and _is_skip_name(s_name):
+                    continue
                 if c_code in state_lookup and s_name.lower() not in state_lookup[c_code]:
                     new_state = State(name=s_name, cities=[])
                     country_lookup[c_code].states.append(new_state)
@@ -236,6 +261,9 @@ def load_data():
             
         except Exception as e:
             print(f"Warning: Failed to load city data: {e}")
+
+    if "MM" in country_lookup:
+        strip_myanmar_skip(country_lookup["MM"])
     
     return all_countries, country_lookup, regions_data
 
@@ -269,6 +297,8 @@ def get_states(request: Request, country_code: str):
         raise HTTPException(status_code=404, detail="Country not found")
     
     country = country_lookup[country_code]
+    if _is_myanmar(country_code):
+        strip_myanmar_skip(country)
     return pin_skip_first(country.states or [], country_code)
 
 @v1_router.get("/countries/{country_code}/states/{state_name}/cities", response_model=List[City])
@@ -277,6 +307,8 @@ def get_states(request: Request, country_code: str):
 def get_cities(request: Request, country_code: str, state_name: str):
     """Get all cities for a specific state in a country"""
     country_code = country_code.upper()
+    if _is_myanmar(country_code) and _is_skip_name(state_name):
+        raise HTTPException(status_code=404, detail="State not found")
     
     # Try Redis first if available
     if USE_REDIS:
@@ -341,6 +373,7 @@ def search_states(request: Request, q: str = Query(..., description="Search quer
         if country.states
         for state in country.states
         if query in state.name.lower()
+        and not (_is_myanmar(country.code) and _is_skip_name(state.name))
     ]
     
     return results[:20]
@@ -359,6 +392,8 @@ def search_cities(request: Request, q: str = Query(..., description="Search quer
     # If using Redis, use our lightweight search index
     if USE_REDIS:
         for city in city_search_index:
+            if _is_myanmar(city["c"]) and (_is_skip_name(city["n"]) or _is_skip_name(city["s"])):
+                continue
             if query in city["n"].lower() or (city["nl"] and query in city["nl"].lower()):
                 country = country_lookup.get(city["c"])
                 results.append({
@@ -382,6 +417,8 @@ def search_cities(request: Request, q: str = Query(..., description="Search quer
             if not state.cities:
                 continue
             for city in state.cities:
+                if _is_myanmar(country.code) and _is_skip_name(city.name):
+                    continue
                 if query in city.name.lower() or (city.name_local and query in city.name_local):
                     results.append({
                         "name": city.name,
@@ -471,7 +508,10 @@ def get_country_details(request: Request, country_code: str):
     if country_code not in country_lookup:
         raise HTTPException(status_code=404, detail="Country not found")
     
-    return country_lookup[country_code]
+    country = country_lookup[country_code]
+    if _is_myanmar(country_code):
+        strip_myanmar_skip(country)
+    return country
 
 # Add version info endpoint
 @app.get("/version")
