@@ -10885,49 +10885,58 @@
     "population": 54409794,
     "states": [
       {
-        "name": "Ayeyarwady Region"
+        "name": "Ayeyarwady"
       },
       {
-        "name": "Bago"
+        "name": "Bago (East)"
       },
       {
-        "name": "Chin State"
+        "name": "Bago (West)"
       },
       {
-        "name": "Kachin State"
+        "name": "Chin"
       },
       {
-        "name": "Kayah State"
+        "name": "KaChin"
       },
       {
-        "name": "Kayin State"
+        "name": "Kayah"
       },
       {
-        "name": "Magway Region"
+        "name": "Kayin"
       },
       {
-        "name": "Mandalay Region"
+        "name": "Magway"
       },
       {
-        "name": "Mon State"
+        "name": "Mandalay"
       },
       {
-        "name": "Naypyidaw Union Territory"
+        "name": "Mon"
       },
       {
-        "name": "Rakhine State"
+        "name": "Naypyidaw"
       },
       {
-        "name": "Sagaing Region"
+        "name": "Rakhine"
       },
       {
-        "name": "Shan State"
+        "name": "Sagaing"
       },
       {
-        "name": "Tanintharyi Region"
+        "name": "Shan (East)"
       },
       {
-        "name": "Yangon Region"
+        "name": "Shan (North)"
+      },
+      {
+        "name": "Shan (South)"
+      },
+      {
+        "name": "Tanintharyi"
+      },
+      {
+        "name": "Yangon"
       }
     ]
   },
