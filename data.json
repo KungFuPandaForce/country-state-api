@@ -10874,7 +10874,7 @@
   },
   {
     "code": "MM",
-    "name": "Myanmar (Burma)",
+    "name": "Myanmar",
     "region": "Asia",
     "subregion": "South-Eastern Asia",
     "phone_code": "+95",
@@ -10884,9 +10884,6 @@
     "flag": "🇲🇲",
     "population": 54409794,
     "states": [
-      {
-        "name": "Skip"
-      },
       {
         "name": "Ayeyarwady Region"
       },

@@ -115,6 +115,20 @@ class Region(BaseModel):
     subregions: List[str] = []
     countries: List[str] = []
 
+def pin_skip_first(items):
+    """Keep Skip at the start of a state or city list; preserve the rest of the order."""
+    if not items:
+        return items
+    skip_items = []
+    other_items = []
+    for item in items:
+        name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+        if name == "Skip":
+            skip_items.append(item)
+        else:
+            other_items.append(item)
+    return skip_items + other_items
+
 # Load and process data at startup
 def find_state_relaxedly(country_code: str, state_name: str, country_lookup_map: dict):
     """Helper to find a state in a country using exact then relaxed matching"""
@@ -244,7 +258,7 @@ def get_states(request: Request, country_code: str):
         raise HTTPException(status_code=404, detail="Country not found")
     
     country = country_lookup[country_code]
-    return country.states or []
+    return pin_skip_first(country.states or [])
 
 @v1_router.get("/countries/{country_code}/states/{state_name}/cities", response_model=List[City])
 @limiter.limit(f"{RATE_LIMIT_DEFAULT}/minute")
@@ -266,14 +280,14 @@ def get_cities(request: Request, country_code: str, state_name: str):
                 for c in raw_cities:
                     if "name_local" not in c and "name_mm" in c:
                         c["name_local"] = c["name_mm"]
-                return raw_cities
+                return pin_skip_first(raw_cities)
 
     # Fallback to in-memory lookup
     state = find_state_relaxedly(country_code, state_name, country_lookup)
     if not state:
         raise HTTPException(status_code=404, detail="State not found")
         
-    return state.cities or []
+    return pin_skip_first(state.cities or [])
 
 @v1_router.get("/search/countries", response_model=List[CountryBase])
 @limiter.limit(f"{RATE_LIMIT_HEAVY}/minute")
